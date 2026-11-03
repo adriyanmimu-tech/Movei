@@ -1,0 +1,6 @@
+{
+  "name": "MovieBox HD Cinema Hub",
+  "description": "High-definition cinema streaming, curated film discovery, series tracker, and offline media manager inspired by MovieBox HD.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
