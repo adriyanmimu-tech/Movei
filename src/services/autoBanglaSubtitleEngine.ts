@@ -24,6 +24,7 @@ export interface SubtitleCue {
   text: string;
   originalText?: string;
   translated?: boolean;
+  keepOriginalScript?: boolean;
 }
 
 export interface AvailableSubtitleTrack {
@@ -32,13 +33,14 @@ export interface AvailableSubtitleTrack {
   lang: string;
   label: string;
   releaseName: string;
+  keepOriginalScript?: boolean;
 }
 
 export interface AutoSubtitleResult {
   cues: SubtitleCue[];
   vttBlobUrl: string;
   sourceLabel: string;
-  language: 'bn' | 'en';
+  language: 'bn' | 'en' | string;
   availableTracks: AvailableSubtitleTrack[];
   activeTrackIndex: number;
   matchedImdbId?: string;
@@ -392,7 +394,11 @@ export function findActiveCueTextAtTime(cues: SubtitleCue[], exactTimeSec: numbe
     const c = cues[i];
     if (c.startSec > exactTimeSec + 0.05) break;
     if (exactTimeSec >= c.startSec - 0.05 && exactTimeSec <= c.endSec + 0.04) {
-      const rawText = c.text ? ensureBengaliScriptText(c.text) : '';
+      const rawText = c.text
+        ? c.keepOriginalScript
+          ? c.text.trim()
+          : ensureBengaliScriptText(c.text)
+        : '';
       if (rawText && !matchedTexts.includes(rawText)) {
         matchedTexts.push(rawText);
         if (matchedTexts.length >= 2) break;
@@ -839,9 +845,12 @@ export async function loadSubtitleTrackByUrl(
   track: AvailableSubtitleTrack,
   currentTimeSec = 0
 ): Promise<SubtitleCue[]> {
-  const cached = srtUrlCueCache.get(track.url);
+  const cacheKey = `${track.url}::orig=${track.keepOriginalScript ? '1' : '0'}`;
+  const cached = srtUrlCueCache.get(cacheKey);
   if (cached && cached.length > 0) {
-    await ensureBanglaTranslationAroundTime(cached, currentTimeSec);
+    if (!track.keepOriginalScript) {
+      await ensureBanglaTranslationAroundTime(cached, currentTimeSec);
+    }
     return cached.map((c) => ({ ...c }));
   }
 
@@ -854,6 +863,16 @@ export async function loadSubtitleTrackByUrl(
   const rawSrt = await res.text();
   const parsedCues = parseSrtOrVttToCues(rawSrt);
   if (parsedCues.length === 0) throw new Error('Empty subtitle file');
+
+  if (track.keepOriginalScript) {
+    parsedCues.forEach((c) => {
+      c.text = c.originalText || c.text;
+      c.translated = true;
+      c.keepOriginalScript = true;
+    });
+    srtUrlCueCache.set(cacheKey, parsedCues);
+    return parsedCues.map((c) => ({ ...c }));
+  }
 
   const isAlreadyBangla =
     track.lang === 'ben' ||
@@ -868,6 +887,7 @@ export async function loadSubtitleTrackByUrl(
   if (isAlreadyBangla) {
     parsedCues.forEach((c) => {
       c.translated = true;
+      c.keepOriginalScript = false;
     });
   } else {
     // Translate the immediate window around currentTimeSec first, plus opening cues
@@ -877,7 +897,7 @@ export async function loadSubtitleTrackByUrl(
     }
   }
 
-  srtUrlCueCache.set(track.url, parsedCues);
+  srtUrlCueCache.set(cacheKey, parsedCues);
   return parsedCues.map((c) => ({ ...c }));
 }
 
@@ -1082,7 +1102,100 @@ export async function fetchOrGenerateAutoBanglaSubtitles(params: {
 
   const streamHint = `${params.streamName || ''} ${params.title || ''}`;
 
-  // 1. First resolve lightweight IMDb/OpenSubtitles JSON tracks (few KB) without downloading 5.7MB of the MKV stream!
+  // 0. PRIORITY #1: MovieBox Official Caption API (/api/mb-captions -> wefeed-h5api-bff/subject/caption)
+  // Returns 100% frame-accurate official .srt subtitles directly from MovieBox CDN with zero video playback delay!
+  if (params.moviePath && params.moviePath.startsWith('/mb/') && !params.forceSearchTitle) {
+    try {
+      const capParams = new URLSearchParams({
+        path: params.moviePath,
+        se: String(effectiveSeason || 0),
+        ep: String(effectiveEpisode || 0),
+      });
+      const capRes = await fetch(`/api/mb-captions?${capParams.toString()}`);
+      if (capRes.ok) {
+        const capJson = await capRes.json();
+        const rawCaptions: Array<{
+          id: string;
+          lan: string;
+          lanName: string;
+          url: string;
+          delay: number;
+        }> = Array.isArray(capJson?.captions) ? capJson.captions : [];
+
+        if (rawCaptions.length > 0) {
+          const mbTracks: AvailableSubtitleTrack[] = [];
+          const nativeBanglaCap = rawCaptions.find((c) =>
+            /^(bn|ben)$/i.test(c.lan) || /bangla|bengali|বাংলা/i.test(c.lanName)
+          );
+          const englishCap =
+            rawCaptions.find((c) => /^en/i.test(c.lan) || /english/i.test(c.lanName)) ||
+            rawCaptions[0];
+
+          if (nativeBanglaCap) {
+            mbTracks.push({
+              id: `mb-cap-bn-${nativeBanglaCap.id}`,
+              url: nativeBanglaCap.url,
+              lang: 'bn',
+              label: 'বাংলা (MovieBox Official)',
+              releaseName: `${params.title} • Official Bangla`,
+              keepOriginalScript: false,
+            });
+          } else if (englishCap) {
+            mbTracks.push({
+              id: `mb-cap-auto-bn-${englishCap.id}`,
+              url: englishCap.url,
+              lang: 'bn',
+              label: 'বাংলা (MovieBox Auto-Translate)',
+              releaseName: `${params.title} • Official Sync`,
+              keepOriginalScript: false,
+            });
+          }
+
+          for (const cap of rawCaptions) {
+            const isBn =
+              /^(bn|ben)$/i.test(cap.lan) || /bangla|bengali|বাংলা/i.test(cap.lanName);
+            if (isBn) continue;
+            mbTracks.push({
+              id: `mb-cap-orig-${cap.id}-${cap.lan}`,
+              url: cap.url,
+              lang: cap.lan || 'en',
+              label: `${cap.lanName || 'English'} (MovieBox Official)`,
+              releaseName: `${params.title} • ${cap.lanName}`,
+              keepOriginalScript: true,
+            });
+          }
+
+          for (let i = 0; i < mbTracks.length; i++) {
+            try {
+              const track = mbTracks[i];
+              const cues = await loadSubtitleTrackByUrl(track, params.currentTimeSec || 0);
+              if (cues.length >= 5) {
+                const vttText = buildVttFromCues(cues);
+                const blob = new Blob([vttText], { type: 'text/vtt' });
+                const result: AutoSubtitleResult = {
+                  cues,
+                  vttBlobUrl: URL.createObjectURL(blob),
+                  sourceLabel: track.label,
+                  language: track.lang,
+                  availableTracks: mbTracks,
+                  activeTrackIndex: i,
+                  autoOffsetSec: 0,
+                };
+                subtitleMemoryCache.set(cacheKey, result);
+                return result;
+              }
+            } catch {
+              // try next MovieBox caption track
+            }
+          }
+        }
+      }
+    } catch {
+      // Fallback to OpenSubtitles v3 below if MovieBox official caption request fails
+    }
+  }
+
+  // 1. Fallback: Resolve lightweight IMDb/OpenSubtitles JSON tracks (few KB) without downloading 5.7MB of the MKV stream!
   const candidates = await resolveImdbCandidates(searchTitle, isSeries);
 
   const foundOnline = await fetchOpenSubtitlesTracksForCandidates(

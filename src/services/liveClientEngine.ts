@@ -1101,9 +1101,8 @@ async function getBrowserMovieBoxBearerToken(): Promise<string> {
           headers: {
             Accept: 'application/json',
             'X-Client-Info': JSON.stringify({ timezone: 'Asia/Dhaka' }),
-            'X-Client-Token': generateBrowserMovieBoxClientToken(),
-            'X-Vip-Restrict': '1',
-            'X-No-High-Risk-Restrict': '0',
+            'X-Vip-Restrict': '0',
+            'X-No-High-Risk-Restrict': '1',
             'X-Request-Lang': 'en',
           },
         }
@@ -1210,12 +1209,15 @@ async function fetchBrowserMovieBoxSearch(query: string, page = 1): Promise<Movi
       'Content-Type': 'application/json',
       Accept: 'application/json',
       'X-Client-Info': JSON.stringify({ timezone: 'Asia/Dhaka' }),
-      'X-Client-Token': generateBrowserMovieBoxClientToken(),
-      'X-Vip-Restrict': '1',
-      'X-No-High-Risk-Restrict': '0',
+      'X-Vip-Restrict': '0',
+      'X-No-High-Risk-Restrict': '1',
       'X-Request-Lang': 'en',
     };
-    if (token) headers.Authorization = `Bearer ${token}`;
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    } else {
+      headers['X-Client-Token'] = generateBrowserMovieBoxClientToken();
+    }
 
     const res = await fetch(`${BROWSER_MB_API}/wefeed-h5api-bff/subject/search`, {
       method: 'POST',
@@ -1255,68 +1257,21 @@ export async function resolveBrowserMovieBoxEpisodeSources(
 ): Promise<{ sources: StreamSource[]; buttons: DirectDownloadButton[] }> {
   if (typeof window === 'undefined' || !subjectId) return { sources: [], buttons: [] };
   try {
-    const token = await getBrowserMovieBoxBearerToken();
-    const headers: Record<string, string> = {
-      Accept: 'application/json',
-      'X-Client-Info': JSON.stringify({ timezone: 'Asia/Dhaka' }),
-      'X-Client-Token': generateBrowserMovieBoxClientToken(),
-      'X-Vip-Restrict': '1',
-      'X-No-High-Risk-Restrict': '0',
-      'X-Request-Lang': 'en',
-    };
-    if (token) headers.Authorization = `Bearer ${token}`;
-
-    const playUrl = `${BROWSER_MB_API}/wefeed-h5api-bff/subject/play?subjectId=${encodeURIComponent(
-      subjectId
-    )}&se=${seasonNum}&ep=${epNum}&detailPath=${encodeURIComponent(detailPath)}&streamSignType=1`;
-    const res = await fetch(playUrl, { headers });
+    const params = new URLSearchParams({
+      subjectId,
+      detailPath,
+      se: String(seasonNum),
+      ep: String(epNum),
+      title,
+      lang: language,
+    });
+    const res = await fetch(`/api/mb-resolve-ep?${params.toString()}`);
     if (!res.ok) return { sources: [], buttons: [] };
     const json = await res.json();
-    const streams: any[] = Array.isArray(json?.data?.streams) ? json.data.streams : [];
-
-    const sources: StreamSource[] = [];
-    const buttons: DirectDownloadButton[] = [];
-    for (let i = 0; i < streams.length; i++) {
-      const st = streams[i];
-      if (!st?.url) continue;
-      const resNum = parseInt(String(st.resolutions || '720'), 10) || 720;
-      const sizeBytes = Number(st.size) || 0;
-      const sizeMb = sizeBytes > 0 ? `${(sizeBytes / (1024 * 1024)).toFixed(0)} MB` : 'Full HD';
-      const b64Token = encodeBrowserBase64Url(String(st.url));
-      const proxiedStreamUrl = `/api/mb-stream.mp4?t=${b64Token}`;
-      const proxiedDlUrl = `/api/mb-stream.mp4?t=${b64Token}&dl=1&name=${encodeURIComponent(
-        `${title.replace(/[^a-zA-Z0-9_-]+/g, '_')}_${resNum}p.mp4`
-      )}`;
-      sources.push({
-        id: `mb-browser-${subjectId}-s${seasonNum}-e${epNum}-${resNum}p-${i}`,
-        quality: resNum,
-        qualityLabel: `${resNum}p Full HD (MovieBox Direct)`,
-        audio: language,
-        audioLanguages: [language],
-        provider: `MovieBox HD ${resNum}p`,
-        url: proxiedStreamUrl,
-        downloadUrl: proxiedDlUrl,
-        type: 'mp4',
-        name: `${title} (${resNum}p MP4 • ${sizeMb})`,
-      });
-      buttons.push({
-        label: `MovieBox Direct Download ${resNum}p MP4 (${sizeMb})`,
-        url: proxiedDlUrl,
-        quality: `${resNum}p`,
-        size: sizeMb,
-      });
-    }
-    sources.sort((a, b) => {
-      const rank = (s: StreamSource) => {
-        if (s.quality === 720) return 100;
-        if (s.quality === 480) return 99;
-        if (s.quality === 360) return 95;
-        if (s.quality === 1080) return 94;
-        return s.quality;
-      };
-      return rank(b) - rank(a);
-    });
-    return { sources, buttons };
+    return {
+      sources: Array.isArray(json?.sources) ? json.sources : [],
+      buttons: Array.isArray(json?.buttons) ? json.buttons : [],
+    };
   } catch {
     return { sources: [], buttons: [] };
   }
@@ -1334,25 +1289,22 @@ async function fetchBrowserMovieBoxDetail(rawPath: string): Promise<MovieDetailD
     const headers: Record<string, string> = {
       Accept: 'application/json',
       'X-Client-Info': JSON.stringify({ timezone: 'Asia/Dhaka' }),
-      'X-Client-Token': generateBrowserMovieBoxClientToken(),
-      'X-Vip-Restrict': '1',
-      'X-No-High-Risk-Restrict': '0',
+      'X-Vip-Restrict': '0',
+      'X-No-High-Risk-Restrict': '1',
       'X-Request-Lang': 'en',
     };
-    if (token) headers.Authorization = `Bearer ${token}`;
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    } else {
+      headers['X-Client-Token'] = generateBrowserMovieBoxClientToken();
+    }
 
-    const detPromise = fetch(
+    const detJson = await fetch(
       `${BROWSER_MB_API}/wefeed-h5api-bff/detail?detailPath=${encodeURIComponent(exactSlug)}&subjectId=${encodeURIComponent(subjectId)}`,
       { headers }
     )
       .then((r) => (r.ok ? r.json() : null))
       .catch(() => null);
-
-    const [detJson, moviePlay, ep1Play] = await Promise.all([
-      detPromise,
-      resolveBrowserMovieBoxEpisodeSources(subjectId, exactSlug, 0, 0, exactSlug, 'Original Audio'),
-      resolveBrowserMovieBoxEpisodeSources(subjectId, exactSlug, 1, 1, exactSlug, 'Original Audio'),
-    ]);
 
     const subject = detJson?.data?.subject;
     if (!subject) return null;
@@ -1468,35 +1420,64 @@ async function fetchBrowserMovieBoxDetail(rawPath: string): Promise<MovieDetailD
 
     const seasonsList = Array.isArray(resource.seasons) ? resource.seasons : [];
     const isMovieType =
-      (subjectType === 1 && ep1Play.sources.length === 0) ||
+      subjectType === 1 ||
       seasonsList.length === 0 ||
       (seasonsList.length === 1 && Number(seasonsList[0]?.se) === 0);
 
     const episodes: EpisodeItem[] = [];
-    let downloadButtons: DirectDownloadButton[] = [];
+    const downloadButtons: DirectDownloadButton[] = [];
 
     if (isMovieType) {
-      const sources = (moviePlay.sources.length > 0 ? moviePlay.sources : ep1Play.sources).map(
-        (s) => ({
-          ...s,
-          audio: language,
-          audioLanguages: [language],
-          name: `${title} (${s.quality}p MP4)`,
-        })
-      );
-      downloadButtons = moviePlay.buttons.length > 0 ? moviePlay.buttons : ep1Play.buttons;
-      if (sources.length > 0) {
-        episodes.push({
-          id: `mb-movie-${subjectId}`,
-          label: 'Full Movie (MovieBox HD)',
-          number: 1,
-          rangeStart: 1,
-          rangeEnd: 1,
-          season: null,
-          kind: 'movie',
-          sources,
-        });
-      }
+      const dynamicStreamUrl = `/api/mb-ep-stream.mp4?subjectId=${encodeURIComponent(
+        subjectId
+      )}&detailPath=${encodeURIComponent(detailPath)}&se=0&ep=0`;
+      episodes.push({
+        id: `mb-movie-${subjectId}`,
+        label: 'Full Movie (MovieBox HD)',
+        number: 1,
+        rangeStart: 1,
+        rangeEnd: 1,
+        season: null,
+        kind: 'movie',
+        sources: [
+          {
+            id: `mb-lazy-${subjectId}-s0-e0-480`,
+            quality: 480,
+            qualityLabel: '480p Fast Instant (MovieBox Direct)',
+            audio: language,
+            audioLanguages: [language],
+            provider: 'MovieBox HD 480p',
+            url: `${dynamicStreamUrl}&q=480`,
+            downloadUrl: `${dynamicStreamUrl}&q=480&dl=1`,
+            type: 'mp4',
+            name: `${title} (480p)`,
+          },
+          {
+            id: `mb-lazy-${subjectId}-s0-e0-720`,
+            quality: 720,
+            qualityLabel: '720p HD (MovieBox Direct)',
+            audio: language,
+            audioLanguages: [language],
+            provider: 'MovieBox HD 720p',
+            url: `${dynamicStreamUrl}&q=720`,
+            downloadUrl: `${dynamicStreamUrl}&q=720&dl=1`,
+            type: 'mp4',
+            name: `${title} (720p)`,
+          },
+          {
+            id: `mb-lazy-${subjectId}-s0-e0-1080`,
+            quality: 1080,
+            qualityLabel: '1080p Full HD (MovieBox Direct)',
+            audio: language,
+            audioLanguages: [language],
+            provider: 'MovieBox HD 1080p',
+            url: `${dynamicStreamUrl}&q=1080`,
+            downloadUrl: `${dynamicStreamUrl}&q=1080&dl=1`,
+            type: 'mp4',
+            name: `${title} (1080p)`,
+          },
+        ],
+      });
     } else {
       const parseSeasonEpNums = (sObj: any): number[] => {
         const maxEp = Math.max(1, Number(sObj?.maxEp) || 1);
@@ -1515,75 +1496,56 @@ async function fetchBrowserMovieBoxDetail(rawPath: string): Promise<MovieDetailD
         const epNums = parseSeasonEpNums(sObj);
 
         for (const epNum of epNums) {
-          if (seNum === 1 && epNum === 1 && ep1Play.sources.length > 0) {
-            if (downloadButtons.length === 0) downloadButtons = ep1Play.buttons;
-            episodes.push({
-              id: `mb-ep-${subjectId}-s${seNum}-e${epNum}`,
-              label: `S${String(seNum).padStart(2, '0')}E${String(epNum).padStart(2, '0')} • Episode ${epNum}`,
-              number: epNum,
-              rangeStart: epNum,
-              rangeEnd: epNum,
-              season: seNum,
-              kind: 'episode',
-              sources: ep1Play.sources.map((s) => ({
-                ...s,
+          const dynamicStreamUrl = `/api/mb-ep-stream.mp4?subjectId=${encodeURIComponent(
+            subjectId
+          )}&detailPath=${encodeURIComponent(detailPath)}&se=${seNum}&ep=${epNum}`;
+          episodes.push({
+            id: `mb-ep-${subjectId}-s${seNum}-e${epNum}`,
+            label: `S${String(seNum).padStart(2, '0')}E${String(epNum).padStart(2, '0')} • Episode ${epNum}`,
+            number: epNum,
+            rangeStart: epNum,
+            rangeEnd: epNum,
+            season: seNum,
+            kind: 'episode',
+            sources: [
+              {
+                id: `mb-lazy-${subjectId}-s${seNum}-e${epNum}-480`,
+                quality: 480,
+                qualityLabel: '480p Fast Instant (MovieBox Direct)',
                 audio: language,
                 audioLanguages: [language],
-                name: `${title} - S${seNum}E${epNum} (${s.quality}p MP4)`,
-              })),
-            });
-          } else {
-            const dynamicStreamUrl = `/api/mb-ep-stream.mp4?subjectId=${encodeURIComponent(
-              subjectId
-            )}&detailPath=${encodeURIComponent(detailPath)}&se=${seNum}&ep=${epNum}`;
-            episodes.push({
-              id: `mb-ep-${subjectId}-s${seNum}-e${epNum}`,
-              label: `S${String(seNum).padStart(2, '0')}E${String(epNum).padStart(2, '0')} • Episode ${epNum}`,
-              number: epNum,
-              rangeStart: epNum,
-              rangeEnd: epNum,
-              season: seNum,
-              kind: 'episode',
-              sources: [
-                {
-                  id: `mb-lazy-${subjectId}-s${seNum}-e${epNum}-720`,
-                  quality: 720,
-                  qualityLabel: '720p HD (MovieBox Direct)',
-                  audio: language,
-                  audioLanguages: [language],
-                  provider: 'MovieBox HD 720p',
-                  url: `${dynamicStreamUrl}&q=720`,
-                  downloadUrl: `${dynamicStreamUrl}&q=720&dl=1`,
-                  type: 'mp4',
-                  name: `${title} - S${seNum}E${epNum} (720p)`,
-                },
-                {
-                  id: `mb-lazy-${subjectId}-s${seNum}-e${epNum}-480`,
-                  quality: 480,
-                  qualityLabel: '480p Fast (MovieBox Direct)',
-                  audio: language,
-                  audioLanguages: [language],
-                  provider: 'MovieBox HD 480p',
-                  url: `${dynamicStreamUrl}&q=480`,
-                  downloadUrl: `${dynamicStreamUrl}&q=480&dl=1`,
-                  type: 'mp4',
-                  name: `${title} - S${seNum}E${epNum} (480p)`,
-                },
-                {
-                  id: `mb-lazy-${subjectId}-s${seNum}-e${epNum}-1080`,
-                  quality: 1080,
-                  qualityLabel: '1080p Full HD (MovieBox Direct)',
-                  audio: language,
-                  audioLanguages: [language],
-                  provider: 'MovieBox HD 1080p',
-                  url: `${dynamicStreamUrl}&q=1080`,
-                  downloadUrl: `${dynamicStreamUrl}&q=1080&dl=1`,
-                  type: 'mp4',
-                  name: `${title} - S${seNum}E${epNum} (1080p)`,
-                },
-              ],
-            });
-          }
+                provider: 'MovieBox HD 480p',
+                url: `${dynamicStreamUrl}&q=480`,
+                downloadUrl: `${dynamicStreamUrl}&q=480&dl=1`,
+                type: 'mp4',
+                name: `${title} - S${seNum}E${epNum} (480p)`,
+              },
+              {
+                id: `mb-lazy-${subjectId}-s${seNum}-e${epNum}-720`,
+                quality: 720,
+                qualityLabel: '720p HD (MovieBox Direct)',
+                audio: language,
+                audioLanguages: [language],
+                provider: 'MovieBox HD 720p',
+                url: `${dynamicStreamUrl}&q=720`,
+                downloadUrl: `${dynamicStreamUrl}&q=720&dl=1`,
+                type: 'mp4',
+                name: `${title} - S${seNum}E${epNum} (720p)`,
+              },
+              {
+                id: `mb-lazy-${subjectId}-s${seNum}-e${epNum}-1080`,
+                quality: 1080,
+                qualityLabel: '1080p Full HD (MovieBox Direct)',
+                audio: language,
+                audioLanguages: [language],
+                provider: 'MovieBox HD 1080p',
+                url: `${dynamicStreamUrl}&q=1080`,
+                downloadUrl: `${dynamicStreamUrl}&q=1080&dl=1`,
+                type: 'mp4',
+                name: `${title} - S${seNum}E${epNum} (1080p)`,
+              },
+            ],
+          });
         }
       }
     }
@@ -1748,8 +1710,31 @@ export async function universalApiFetch(endpoint: string, init?: RequestInit): P
             if (mergedDubs.length > 0) {
               json.detail.dubs = mergedDubs;
             }
-            if (browserDetail.episodes.length > (json.detail.episodes?.length || 0)) {
-              json.detail.episodes = browserDetail.episodes;
+            const serverEps: EpisodeItem[] = Array.isArray(json.detail.episodes) ? json.detail.episodes : [];
+            const browserHasRealSeriesEps =
+              browserDetail.episodes.length > 1 ||
+              (browserDetail.episodes.length === 1 && browserDetail.episodes[0]?.kind === 'episode');
+            if (browserDetail.episodes.length > 0 && (browserHasRealSeriesEps || serverEps.length <= 1)) {
+              // Union-merge episodes across all seasons from both server (Cinemeta multi-season + pre-warmed streams) and browser (regional MovieBox seasons)!
+              const epUnionMap = new Map<string, EpisodeItem>();
+              if (browserHasRealSeriesEps || serverEps.length === 0) {
+                for (const bEp of browserDetail.episodes) {
+                  epUnionMap.set(`${bEp.season || 1}::${bEp.number}`, bEp);
+                }
+              }
+              for (const sEp of serverEps) {
+                // Server episodes take priority because they include pre-warmed MP4 tokens + sibling season subjectIds!
+                epUnionMap.set(`${sEp.season || 1}::${sEp.number}`, sEp);
+              }
+              const mergedEps = Array.from(epUnionMap.values()).sort((a, b) => {
+                const sa = a.season || 1;
+                const sb = b.season || 1;
+                if (sa !== sb) return sa - sb;
+                return (a.number || 1) - (b.number || 1);
+              });
+              if (mergedEps.length > 0) {
+                json.detail.episodes = mergedEps;
+              }
             }
             if (browserDetail.uploadedBy && browserDetail.uploadedBy !== 'MarieNo Ess') {
               json.detail.uploadedBy = browserDetail.uploadedBy;
@@ -2153,41 +2138,7 @@ export async function universalApiFetch(endpoint: string, init?: RequestInit): P
     return {
       ok: true,
       banners: homeItems.slice(0, 8),
-      liveSports: [
-        {
-          id: 'sport-football-live',
-          title: 'Football Live',
-          bnTitle: 'ফুটবল লাইভ ম্যাচ (MovieBox Sports)',
-          subtitle: 'UEFA Champions League • Premier League • LaLiga • FIFA Live',
-          sportType: 'football',
-          liveUrl: 'https://sportsnow.top/live?tab=live&sportType=football',
-          categoryPath: '/fifa',
-          badge: 'LIVE MATCH',
-          accentColor: '#00e68a',
-        },
-        {
-          id: 'sport-basketball-live',
-          title: 'Basketball Live',
-          bnTitle: 'বাস্কেটবল ও NBA লাইভ ম্যাচ',
-          subtitle: 'NBA Playoffs • EuroLeague • FIBA Live Score & Stream',
-          sportType: 'basketball',
-          liveUrl: 'https://sportsnow.top/live?tab=live&sportType=basketball',
-          categoryPath: '/category/sports',
-          badge: 'NBA LIVE',
-          accentColor: '#f59e0b',
-        },
-        {
-          id: 'sport-wwe-wrestling',
-          title: 'WWE & Combat Sports',
-          bnTitle: 'ডব্লিউডব্লিউই রেসলিং ও ফাইট শো',
-          subtitle: 'WrestleMania • RAW • SmackDown • Royal Rumble Full HD',
-          sportType: 'wwe',
-          liveUrl: 'https://sportsnow.top/live?tab=live&sportType=football',
-          categoryPath: '/category/wwe',
-          badge: 'WWE HD',
-          accentColor: '#ef4444',
-        },
-      ],
+      liveSports: [],
       quickCategories: [
         {
           id: 'qc-hollywood',

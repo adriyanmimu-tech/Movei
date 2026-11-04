@@ -170,7 +170,7 @@ export default function App() {
   const [brokenImages, setBrokenImages] = useState<Record<string, boolean>>({});
 
   // Modals, Mini-Player & Entry Splash Screen State
-  const [showSplashScreen, setShowSplashScreen] = useState<boolean>(true);
+  const [showSplashScreen, setShowSplashScreen] = useState<boolean>(false);
   const [selectedMovie, setSelectedMovie] = useState<MovieCardItem | null>(null);
   const [isMiniPlayer, setIsMiniPlayer] = useState<boolean>(false);
   const [liveClockNow, setLiveClockNow] = useState<number>(() => Date.now());
@@ -2678,30 +2678,6 @@ export default function App() {
                       </span>
                     </div>
 
-                    {/* MovieBox HD Official Source Bar */}
-                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5 border-b border-white/[0.06]">
-                      {[
-                        {
-                          id: 'ALL',
-                          label: 'MovieBox HD (সকল কন্টেন্ট)',
-                          count: sourceCounts.total,
-                          activeCls: 'bg-emerald-600 text-white border-emerald-400',
-                        },
-                      ].map((srcTab) => (
-                        <button
-                          key={srcTab.id}
-                          type="button"
-                          onClick={() => setSourceFilter('ALL')}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-extrabold whitespace-nowrap shrink-0 border flex items-center gap-1.5 transition-all ${srcTab.activeCls} shadow-md`}
-                        >
-                          <span>{srcTab.label}</span>
-                          <span className="px-1.5 py-0.2 rounded-md bg-black/40 text-[10px] font-mono tabular-nums">
-                            {srcTab.count}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-
                     {/* Clean Audio Filter Segmented Controls + Quality/Sort Selectors */}
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
@@ -2827,15 +2803,10 @@ export default function App() {
                                 </div>
                               )}
 
-                              {/* Top-Right Language + Source Tag */}
+                              {/* Top-Right Language Tag */}
                               <div className="absolute top-1.5 right-1.5 flex flex-col items-end gap-1">
                                 <span className="px-1.5 py-0.5 rounded-md bg-black/75 backdrop-blur-xs text-[9px] sm:text-[10px] font-bold text-white border border-white/10">
                                   {formatShortLanguage(item.language)}
-                                </span>
-                                <span
-                                  className={`px-1.5 py-0.2 rounded text-[8px] sm:text-[9px] font-extrabold border ${srcInfo.badgeClass}`}
-                                >
-                                  {srcInfo.label}
                                 </span>
                               </div>
 
@@ -2971,134 +2942,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* 📚 CURATED FRANCHISE COLLECTIONS & UPCOMING RELEASES */}
-              {!submittedSearch && currentPage === 1 && !isSportsCategoryView && (
-                <div className="pt-2 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Layers className="w-5 h-5 text-[#ef4444]" />
-                      <h2 className="text-base sm:text-lg font-extrabold text-white tracking-tight">
-                        COLLECTIONS · জনপ্রিয় কালেকশন
-                      </h2>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleSelectCategory(findCat('/collections'))}
-                      className="text-xs text-[#ef4444] font-bold flex items-center gap-0.5"
-                    >
-                      <span>Show All</span>
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  <div className="flex items-stretch gap-3 overflow-x-auto no-scrollbar pb-1">
-                    {CURATED_COLLECTION_CARDS.map((coll) => (
-                      <button
-                        key={coll.path}
-                        type="button"
-                        onClick={() =>
-                          handleSelectCategory({
-                            label: coll.title,
-                            bnLabel: coll.bnTitle,
-                            path: coll.path,
-                            group: 'collection',
-                          })
-                        }
-                        className="w-[210px] sm:w-[235px] shrink-0 rounded-2xl bg-[#0a0a0a] hover:bg-[#141414] border border-white/[0.08] hover:border-[#dc2626]/60 p-2.5 text-left flex flex-col justify-between transition-all group cursor-pointer"
-                      >
-                        <div className="grid grid-cols-2 gap-1.5 aspect-[16/10] w-full rounded-xl overflow-hidden bg-[#050505] mb-2">
-                          {coll.posters.map((posterUrl, pIdx) => (
-                            <div key={pIdx} className="w-full h-full overflow-hidden bg-[#101010]">
-                              <img
-                                src={posterUrl}
-                                alt=""
-                                referrerPolicy="no-referrer"
-                                loading="lazy"
-                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                              />
-                            </div>
-                          ))}
-                        </div>
-
-                        <div>
-                          <h3 className="text-xs sm:text-sm font-extrabold text-white line-clamp-1 group-hover:text-[#ef4444]">
-                            {coll.title}
-                          </h3>
-                          <div className="mt-1 flex items-center justify-between text-[11px] text-gray-400">
-                            <span className="truncate">{coll.bnTitle}</span>
-                            <span className="font-mono text-[#ef4444] font-bold shrink-0">
-                              {coll.countLabel}
-                            </span>
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* 📅 UPCOMING RELEASES */}
-              {!submittedSearch && currentPage === 1 && !isSportsCategoryView && (
-                <div className="pt-2 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Calendar className="w-5 h-5 text-[#ef4444]" />
-                      <h2 className="text-base sm:text-lg font-extrabold text-white tracking-tight">
-                        UPCOMING RELEASES · আপকামিং রিলিজ
-                      </h2>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleSelectCategory(findCat('/upcoming'))}
-                      className="text-xs text-gray-400 hover:text-white flex items-center gap-0.5"
-                    >
-                      <span>All Upcoming</span>
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  <div className="flex items-stretch gap-3 overflow-x-auto no-scrollbar pb-1">
-                    {UPCOMING_RELEASES.map((up) => (
-                      <div
-                        key={up.id}
-                        onClick={() => {
-                          setSearchQuery(up.searchQuery);
-                          setSubmittedSearch(up.searchQuery);
-                          window.scrollTo({ top: 0, behavior: 'smooth' });
-                        }}
-                        className="w-[136px] sm:w-[158px] shrink-0 rounded-2xl overflow-hidden bg-[#0a0a0a] border border-white/[0.08] hover:border-[#dc2626]/60 cursor-pointer group flex flex-col"
-                      >
-                        <div className="relative aspect-[2/3] w-full bg-[#050505] overflow-hidden">
-                          <img
-                            src={up.poster}
-                            alt={up.title}
-                            referrerPolicy="no-referrer"
-                            loading="lazy"
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                          />
-                          <div
-                            title={up.fullDate}
-                            className="absolute top-2 left-2 rounded-lg overflow-hidden shadow-lg border border-white/20 text-center min-w-[38px]"
-                          >
-                            <div className="bg-[#dc2626] text-white text-[8px] font-black uppercase py-0.5 px-1.5">
-                              {up.month}
-                            </div>
-                            <div className="bg-black/85 text-white text-xs font-extrabold font-mono py-0.5 px-1.5">
-                              {up.day}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="p-2">
-                          <h3 className="text-xs font-bold text-gray-100 truncate group-hover:text-[#ef4444]">
-                            {up.title}
-                          </h3>
-                          <p className="text-[10px] text-gray-400 mt-0.5">{up.fullDate}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {/* Static Collections & Upcoming sections removed for clean live feed */}
 
               {/* Bottom 520-Page Pagination Bar */}
               <div className="rounded-2xl bg-[#0a0a0a] border border-white/[0.08] p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -3424,26 +3268,7 @@ export default function App() {
               </button>
             </div>
 
-            {/* Golden Rewards Center Banner */}
-            <div
-              onClick={() => setShowRequestModal(true)}
-              className="rounded-2xl bg-gradient-to-r from-[#2c2112] via-[#5c3d16] to-[#3d2910] border border-amber-500/20 px-4 py-3 flex items-center justify-between cursor-pointer shadow-lg"
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-amber-500/20 flex items-center justify-center text-amber-400">
-                  <Star className="w-5 h-5" />
-                </div>
-                <div>
-                  <div className="text-xs sm:text-sm font-bold text-white leading-tight">
-                    Rewards Center
-                  </div>
-                  <div className="text-[11px] text-amber-200/80">Win big Prizes!</div>
-                </div>
-              </div>
-              <ChevronRight className="w-4 h-4 text-amber-200/80" />
-            </div>
-
-            {/* Card Group 1: Watch History + My List + Messages (Last 24h) + TV Download & Web Link */}
+            {/* Clean Essential Card Group: Watch History + My List + Last 24h Updates + App Install */}
             <div className="rounded-2xl bg-[#16181e] overflow-hidden shadow-lg">
               {/* Watch History Section */}
               <div className="pt-4 pb-3.5 space-y-3">
@@ -3510,7 +3335,6 @@ export default function App() {
                             </div>
                           )}
 
-                          {/* Top-Left White TV / Film Badge */}
                           <div className="absolute top-1.5 left-1.5 w-5 h-5 rounded-md bg-white/90 text-[#0c0d11] flex items-center justify-center shadow">
                             {isSeries ? (
                               <Tv className="w-3 h-3 stroke-[2.5]" />
@@ -3519,7 +3343,6 @@ export default function App() {
                             )}
                           </div>
 
-                          {/* Bottom Green-Cyan Progress Bar */}
                           <div className="absolute bottom-0 inset-x-0 h-1 bg-black/50">
                             <div
                               className="h-full bg-gradient-to-r from-[#00e68a] to-[#12d6df]"
@@ -3553,7 +3376,7 @@ export default function App() {
                 </div>
               </button>
 
-              {/* Row: Messages / Last 24 Hours Updates (Opens 24h drawer ONLY when tapped!) */}
+              {/* Row: Last 24 Hours Updates */}
               <button
                 type="button"
                 onClick={() => setShowRequestModal(true)}
@@ -3562,7 +3385,7 @@ export default function App() {
                 <div className="flex items-center gap-3">
                   <Bell className="w-5 h-5 text-gray-300" />
                   <span className="text-[15px] font-medium text-gray-100">
-                    Messages · Last 24h
+                    New Uploads · Last 24h
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -3573,117 +3396,19 @@ export default function App() {
                 </div>
               </button>
 
-              {/* Row: TV Download & Web Link */}
+              {/* Row: Install App & Settings */}
               <button
                 type="button"
                 onClick={() => setShowInstallModal(true)}
                 className="w-full px-4 py-4 border-t border-white/[0.04] hover:bg-white/[0.03] flex items-center justify-between transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <Tv className="w-5 h-5 text-gray-300" />
-                  <span className="text-[15px] font-medium text-gray-100">
-                    TV Download & Web Link
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="px-1.5 py-0.5 rounded bg-[#e53935] text-white text-[10px] font-extrabold tracking-wide">
-                    NEW
-                  </span>
-                  <ChevronRight className="w-4 h-4 text-gray-400" />
-                </div>
-              </button>
-            </div>
-
-            {/* Card Group 2: Community + My Activity */}
-            <div className="rounded-2xl bg-[#16181e] overflow-hidden shadow-lg">
-              <button
-                type="button"
-                onClick={() => setShowRequestModal(true)}
-                className="w-full px-4 py-4 hover:bg-white/[0.03] flex items-center justify-between transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <Smile className="w-5 h-5 text-gray-300" />
-                  <span className="text-[15px] font-medium text-gray-100">Community</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-sm text-gray-400">
-                  <span>0</span>
-                  <ChevronRight className="w-4 h-4" />
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTab('watchlist')}
-                className="w-full px-4 py-4 border-t border-white/[0.04] hover:bg-white/[0.03] flex items-center justify-between transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <MessageCircle className="w-5 h-5 text-gray-300" />
-                  <span className="text-[15px] font-medium text-gray-100">My Activity</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-sm text-gray-400">
-                  <span>{continueWatching.length}</span>
-                  <ChevronRight className="w-4 h-4" />
-                </div>
-              </button>
-            </div>
-
-            {/* Card Group 3: Settings + Study Mode + Feedback */}
-            <div className="rounded-2xl bg-[#16181e] overflow-hidden shadow-lg">
-              <button
-                type="button"
-                onClick={() => setShowInstallModal(true)}
-                className="w-full px-4 py-4 hover:bg-white/[0.03] flex items-center justify-between transition-colors"
               >
                 <div className="flex items-center gap-3">
                   <Settings className="w-5 h-5 text-gray-300" />
-                  <span className="text-[15px] font-medium text-gray-100">Settings</span>
+                  <span className="text-[15px] font-medium text-gray-100">
+                    Install App & TV Setup
+                  </span>
                 </div>
                 <ChevronRight className="w-4 h-4 text-gray-400" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTab('categories')}
-                className="w-full px-4 py-4 border-t border-white/[0.04] hover:bg-white/[0.03] flex items-center justify-between transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <GraduationCap className="w-5 h-5 text-gray-300" />
-                  <span className="text-[15px] font-medium text-gray-100">Study Mode</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-sm text-gray-400">
-                  <span>Create Study Profile</span>
-                  <ChevronRight className="w-4 h-4" />
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowRequestModal(true)}
-                className="w-full px-4 py-4 border-t border-white/[0.04] hover:bg-white/[0.03] flex items-center justify-between transition-colors"
-              >
-                <div className="flex items-center gap-3">
-                  <MessageSquareWarning className="w-5 h-5 text-gray-300" />
-                  <span className="text-[15px] font-medium text-gray-100">Feedback</span>
-                </div>
-                <ChevronRight className="w-4 h-4 text-gray-400" />
-              </button>
-            </div>
-
-            {/* Bottom Official Website & Copy Link */}
-            <div className="pt-2 pb-4 flex items-center justify-center gap-2 text-xs sm:text-sm text-gray-300">
-              <span>Official website: movie-box.co</span>
-              <button
-                type="button"
-                onClick={() => {
-                  try {
-                    navigator.clipboard.writeText(window.location.origin);
-                  } catch {
-                    // ignore
-                  }
-                }}
-                className="text-[#00e68a] font-semibold hover:underline"
-              >
-                Copy link
               </button>
             </div>
           </main>

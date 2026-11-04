@@ -1169,22 +1169,25 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
   const sources = useMemo<StreamSource[]>(() => {
     const rawList = activeEpisode?.sources ? [...activeEpisode.sources] : [];
     const directVideoSources = rawList.filter(
-      (s) => s.type !== 'embed' && !/abyssplayer\.com|abysscdn\.com|vidsrc|superembed|multiembed|\/embed\//i.test(s.url || '')
+      (s) =>
+        s.type !== 'embed' &&
+        !/abyssplayer\.com|abysscdn\.com|vidsrc|vidlink\.pro|autoembed|superembed|multiembed|\/embed\//i.test(
+          s.url || ''
+        )
     );
     const score = (src: StreamSource) => {
       const url = src.url || '';
       const isMovieBox =
         src.id?.startsWith('mb-') || /\/api\/mb-stream|\/api\/mb-ep-stream/i.test(url);
       if (isMovieBox) {
-        // Prioritize native H.264 MP4 Micro-Chunk streams from movie-box.co first!
-        // Rank fast-start 720p/480p/360p (or 1080p <= 350MB) ahead of heavy 900MB 1080p files for <150ms startup
+        // Prioritize fast-start 480p and lightweight 720p first for <0.8s instant playback on mobile!
         const szMatch = (src.name || '').match(/(\d+)\s*MB/i);
         const szMb = szMatch ? parseInt(szMatch[1], 10) : 0;
-        const isHeavyFile = szMb > 350;
+        const isHeavyFile = szMb > 320;
         const base = 4500;
-        if (src.quality === 720) return base + 260;
-        if (src.quality === 480) return base + 250;
-        if (src.quality >= 360 && src.quality <= 576) return base + 235;
+        if (src.quality === 480) return base + 275;
+        if (src.quality === 720) return szMb > 220 ? base + 240 : base + 270;
+        if (src.quality >= 360 && src.quality <= 576) return base + 255;
         if (src.quality === 1080) return isHeavyFile ? base + 140 : base + 245;
         return base + 200;
       }
@@ -1207,12 +1210,7 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
     };
 
     const sortedDirect = [...directVideoSources].sort((a, b) => score(b) - score(a));
-    const embedRaw = rawList.filter(
-      (s) => s.type === 'embed' || /abyssplayer\.com|abysscdn\.com|vidsrc|superembed|multiembed|\/embed\//i.test(s.url || '')
-    );
 
-    // Put direct <video> streams FIRST so native HTML5 <video>, OS PiP, Quality Selector, and Gesture Controls work on every video,
-    // and ALWAYS append embed/MyFlix backup servers after them so playback never fails if a regional CDN is unreachable!
     const myflixFirst: StreamSource[] = [];
     const seen = new Set<string>();
 
@@ -1221,84 +1219,38 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
         seen.add(d.url);
         myflixFirst.push({
           ...d,
-          name: d.name || `MovieBox HD #${idx + 1} (${d.quality || 720}p)`,
-          provider: d.provider || `MovieBox HD #${idx + 1}`,
+          name: d.name || `MovieBox HD #${idx + 1} (${d.quality || 480}p)`,
+          provider: d.provider || `MovieBox HD ${d.quality || 480}p`,
         });
       }
     }
 
-    // While /api/details is still loading and we have no direct streams yet, wait before falling back to embed
-    if (loading && myflixFirst.length === 0) {
-      return [];
-    }
-
-    for (const e of embedRaw) {
-      if (e.url && !seen.has(e.url)) {
-        seen.add(e.url);
-        myflixFirst.push(e);
-      }
-    }
-
-    if (myflixData?.seasonsData?.length) {
-      const flatEpList = myflixData.seasonsData.flatMap((s) => s.episodes || []);
-      const matchedMfEp =
-        flatEpList.find((e) => Number(e.index) === (activeEpisode?.number || selectedEpIdx + 1)) ||
-        flatEpList[selectedEpIdx] ||
-        flatEpList[0];
-      for (const [idx, srv] of (matchedMfEp?.servers || []).entries()) {
-        if (srv?.url && !seen.has(srv.url)) {
-          seen.add(srv.url);
-          myflixFirst.push({
-            id: `myflix-ep-${idx}`,
-            name: `MyFlix Turbo #${idx + 1}`,
-            quality: 1080,
-            qualityLabel: 'MyFlix HLS',
-            audio: movie?.language || 'Multi Audio',
-            audioLanguages: [movie?.language || 'Multi'],
-            provider: `MyFlix Turbo #${idx + 1}`,
-            url: srv.url,
-            downloadUrl: srv.url,
-            type: 'embed',
-          });
-        }
-      }
-    }
-
-    if (myflixData?.embedServers?.length) {
-      myflixData.embedServers.forEach((srv, idx) => {
-        if (srv.url && !seen.has(srv.url)) {
-          seen.add(srv.url);
-          myflixFirst.push({
-            id: `myflix-${idx}`,
-            name: `MyFlix Turbo #${idx + 1}`,
-            quality: 1080,
-            qualityLabel: 'MyFlix HLS',
-            audio: movie?.language || 'Multi Audio',
-            audioLanguages: [movie?.language || 'Multi'],
-            provider: `MyFlix Turbo #${idx + 1}`,
-            url: srv.url,
-            downloadUrl: srv.url,
-            type: 'embed',
-          });
-        }
-      });
-    }
-
     return myflixFirst;
-  }, [activeEpisode?.sources, activeEpisode?.number, selectedEpIdx, loading, myflixData?.seasonsData, myflixData?.embedServers, movie?.language]);
+  }, [activeEpisode?.sources]);
   const activeSource: StreamSource | undefined = sources[selectedSourceIdx] || sources[0];
   const isEmbedSource = Boolean(
     activeSource &&
-      (activeSource.type === 'embed' || /abyssplayer\.com|abysscdn\.com|vidsrc|\/embed\//i.test(activeSource.url))
+      (activeSource.type === 'embed' ||
+        /abyssplayer\.com|abysscdn\.com|vidsrc|vidlink\.pro|autoembed|superembed|multiembed|\/embed\//i.test(
+          activeSource.url
+        ))
   );
 
-  // If the selected episode uses lazy /api/mb-ep-stream.mp4 URLs, also resolve direct CDN MP4 tokens in the browser using user's local Geo-IP!
+  const [episodeStreamLoading, setEpisodeStreamLoading] = useState<boolean>(false);
+
+  // If the selected episode uses lazy /api/mb-ep-stream.mp4 URLs, resolve server-signed tokens + pre-warmed 2MB RAM cache!
   useEffect(() => {
-    if (!activeEpisode || !detail) return;
+    if (!activeEpisode || !detail) {
+      setEpisodeStreamLoading(false);
+      return;
+    }
     const firstLazy = activeEpisode.sources?.find((s) =>
       String(s.url || '').includes('/api/mb-ep-stream')
     );
-    if (!firstLazy) return;
+    if (!firstLazy) {
+      setEpisodeStreamLoading(false);
+      return;
+    }
     let cancelled = false;
     try {
       const u = new URL(firstLazy.url, 'https://cinepulse.local');
@@ -1307,6 +1259,7 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
       const se = parseInt(u.searchParams.get('se') || '1', 10) || 1;
       const ep = parseInt(u.searchParams.get('ep') || '1', 10) || 1;
       if (!subjectId || !detailPath) return;
+      setEpisodeStreamLoading(true);
       resolveBrowserMovieBoxEpisodeSources(
         subjectId,
         detailPath,
@@ -1314,23 +1267,30 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
         ep,
         `${detail.title} S${se}E${ep}`,
         detail.language || 'Original Audio'
-      ).then(({ sources: resolvedSources, buttons: resolvedButtons }) => {
-        if (cancelled || !resolvedSources.length) return;
-        setDetail((prev) => {
-          if (!prev) return prev;
-          const nextEps = prev.episodes.map((item) =>
-            item.id === activeEpisode.id ? { ...item, sources: resolvedSources } : item
-          );
-          return {
-            ...prev,
-            episodes: nextEps,
-            downloadButtons:
-              resolvedButtons.length > 0 ? resolvedButtons : prev.downloadButtons,
-          };
+      )
+        .then(({ sources: resolvedSources, buttons: resolvedButtons }) => {
+          if (cancelled) return;
+          setEpisodeStreamLoading(false);
+          if (!resolvedSources.length) return;
+          setDetail((prev) => {
+            if (!prev) return prev;
+            const nextEps = prev.episodes.map((item) => {
+              if (item.id !== activeEpisode.id) return item;
+              return { ...item, sources: resolvedSources };
+            });
+            return {
+              ...prev,
+              episodes: nextEps,
+              downloadButtons:
+                resolvedButtons.length > 0 ? resolvedButtons : prev.downloadButtons,
+            };
+          });
+        })
+        .catch(() => {
+          if (!cancelled) setEpisodeStreamLoading(false);
         });
-      });
     } catch {
-      // ignore
+      setEpisodeStreamLoading(false);
     }
     return () => {
       cancelled = true;
@@ -1446,7 +1406,7 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
         .finally(() => {
           if (!cancelled) setLoadingAutoSub(false);
         });
-    }, 700);
+    }, hasStartedPlayback ? 80 : 650);
 
     return () => {
       cancelled = true;
@@ -1461,6 +1421,74 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
     hasStartedPlayback,
   ]);
 
+  // Silently pre-discover MovieBox official caption tracks AFTER video has started playing (>= 2s)
+  // so video startup has 0ms delay and the CC menu already knows all available languages!
+  useEffect(() => {
+    if (!movie || !hasStartedPlayback || autoBanglaSubEnabled) return;
+    const rawPath = movie.path || movie.url || '';
+    if (!rawPath.startsWith('/mb/')) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+      const se = activeEpisode?.season && activeEpisode.season > 0 ? activeEpisode.season : 0;
+      const ep = activeEpisode?.number && activeEpisode.number > 0 ? activeEpisode.number : 0;
+      fetch(`/api/mb-captions?path=${encodeURIComponent(rawPath)}&se=${se}&ep=${ep}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => {
+          if (cancelled || !Array.isArray(j?.captions) || j.captions.length === 0) return;
+          const rawCaptions = j.captions as Array<{
+            id: string;
+            lan: string;
+            lanName: string;
+            url: string;
+          }>;
+          const mbTracks: AvailableSubtitleTrack[] = [];
+          const nativeBangla = rawCaptions.find(
+            (c) => /^(bn|ben)$/i.test(c.lan) || /bangla|bengali|বাংলা/i.test(c.lanName)
+          );
+          const englishCap =
+            rawCaptions.find((c) => /^en/i.test(c.lan) || /english/i.test(c.lanName)) ||
+            rawCaptions[0];
+          if (nativeBangla) {
+            mbTracks.push({
+              id: `mb-cap-bn-${nativeBangla.id}`,
+              url: nativeBangla.url,
+              lang: 'bn',
+              label: 'বাংলা (MovieBox Official)',
+              releaseName: 'Official Bangla',
+              keepOriginalScript: false,
+            });
+          } else if (englishCap) {
+            mbTracks.push({
+              id: `mb-cap-auto-bn-${englishCap.id}`,
+              url: englishCap.url,
+              lang: 'bn',
+              label: 'বাংলা (MovieBox Auto-Translate)',
+              releaseName: 'Official Sync',
+              keepOriginalScript: false,
+            });
+          }
+          for (const cap of rawCaptions) {
+            if (/^(bn|ben)$/i.test(cap.lan) || /bangla|bengali|বাংলা/i.test(cap.lanName)) continue;
+            mbTracks.push({
+              id: `mb-cap-orig-${cap.id}-${cap.lan}`,
+              url: cap.url,
+              lang: cap.lan || 'en',
+              label: `${cap.lanName || 'English'} (MovieBox Official)`,
+              releaseName: cap.lanName || 'Official',
+              keepOriginalScript: true,
+            });
+          }
+          setAvailableSubTracks((prev) => (prev.length > 0 ? prev : mbTracks));
+        })
+        .catch(() => {});
+    }, 1800);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [movie?.path, movie?.url, hasStartedPlayback, selectedEpIdx, autoBanglaSubEnabled]);
+
   // Advance playhead clock when playing an embed source so Bangla subtitles stay active on Cloud HLS too
   useEffect(() => {
     if (!movie || !isEmbedSource || !autoBanglaSubEnabled) return;
@@ -1473,7 +1501,15 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
   // Live Windowed Bengali Translation around the viewer's current playback timestamp (even after seeking!)
   const translationBucket = Math.floor(Math.max(0, currentTime - subOffsetSec) / 6);
   useEffect(() => {
-    if (!autoBanglaSubEnabled || subtitleCues.length === 0) return;
+    const activeTrack = availableSubTracks[activeSubTrackIdx];
+    if (
+      !autoBanglaSubEnabled ||
+      subtitleCues.length === 0 ||
+      activeTrack?.keepOriginalScript ||
+      subtitleCues[0]?.keepOriginalScript
+    ) {
+      return;
+    }
     let cancelled = false;
     const v = videoRef.current;
     const exactNow =
@@ -1499,6 +1535,8 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
     useHlsBridge,
     iosSegmentStartSec,
     isEmbedSource,
+    activeSubTrackIdx,
+    availableSubTracks,
   ]);
 
   // Frame-Accurate 55ms Floating-Point Subtitle Sync Ticker:
@@ -1819,23 +1857,10 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
       }
     }, 500);
 
-    // Fast 3.2s Startup Watchdog: if current server hasn't delivered metadata within 3.2s, immediately switch to the next server!
     if (startupWatchdogTimerRef.current) {
       window.clearTimeout(startupWatchdogTimerRef.current);
+      startupWatchdogTimerRef.current = null;
     }
-    startupWatchdogTimerRef.current = window.setTimeout(() => {
-      const curV = videoRef.current;
-      if (curV && curV.readyState === 0 && sources.length > 1) {
-        const nextFailed = Array.from(new Set([...failedSourceIndices, selectedSourceIdx]));
-        const nextIdx = sources.findIndex(
-          (s, idx) => !nextFailed.includes(idx) && s.type !== 'embed'
-        );
-        if (nextIdx !== -1) {
-          setFailedSourceIndices(nextFailed);
-          setSelectedSourceIdx(nextIdx);
-        }
-      }
-    }, 3200);
 
     return () => {
       window.clearTimeout(bufTimer);
@@ -2514,6 +2539,30 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
       if (fallbackIdx !== -1) {
         handleSelectSource(fallbackIdx, true);
       }
+    }
+  };
+
+  const handleSelectSubtitleTrack = async (trackIdx: number) => {
+    const track = availableSubTracks[trackIdx];
+    if (!track) return;
+    setActiveSubTrackIdx(trackIdx);
+    setAutoBanglaSubEnabled(true);
+    setLoadingAutoSub(true);
+    try {
+      const cues = await loadSubtitleTrackByUrl(track, Math.max(0, currentTime - subOffsetSec));
+      if (cues.length > 0) {
+        const vttText = buildVttFromCues(cues);
+        const blob = new Blob([vttText], { type: 'text/vtt' });
+        if (subtitleUrl) URL.revokeObjectURL(subtitleUrl);
+        setSubtitleCues(cues);
+        setSubtitleUrl(URL.createObjectURL(blob));
+        setSubtitleName(track.label);
+        triggerHud('toast', `CC: ${track.label}`);
+      }
+    } catch {
+      triggerHud('toast', 'সাবটাইটেল লোড করা যায়নি');
+    } finally {
+      setLoadingAutoSub(false);
     }
   };
 
@@ -3200,8 +3249,8 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
     objectFit: videoFit,
   };
 
-  // Show up to 60 tiles in the horizontal bar for instant 60fps scrolling, and all in the "All" grid
-  const horizontalEpisodesSlice = filteredEpisodesWithIdx.slice(0, 60);
+  // Show up to 250 tiles in the horizontal bar so full 170-episode anime seasons appear directly in the bar and in the "All" grid
+  const horizontalEpisodesSlice = filteredEpisodesWithIdx.slice(0, 250);
 
   const isRotated90 = !isMiniPlayer && (isLandscapeMode || isFullscreen) && isViewportPortrait;
 
@@ -4483,17 +4532,146 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
                               )}
                             </div>
 
-                            <button
-                              type="button"
-                              onClick={() => setAutoBanglaSubEnabled((v) => !v)}
-                              className={`px-2 py-0.5 rounded text-[10px] font-sans font-bold border cursor-pointer ${
-                                autoBanglaSubEnabled
-                                  ? 'bg-[#dc2626] border-[#dc2626] text-white'
-                                  : 'bg-black/60 border-white/20 text-gray-200'
-                              }`}
-                            >
-                              বাংলা Sub
-                            </button>
+                            {/* MovieBox Official Subtitle (CC) Button & Track Menu Inside Player */}
+                            <div className="relative">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setShowQualityMenu(false);
+                                  if (!autoBanglaSubEnabled && !showSubSyncPanel) {
+                                    setAutoBanglaSubEnabled(true);
+                                    setShowSubSyncPanel(true);
+                                  } else {
+                                    setShowSubSyncPanel((v) => !v);
+                                  }
+                                }}
+                                className={`px-2 py-0.5 rounded text-[10px] font-sans font-bold border cursor-pointer flex items-center gap-1 ${
+                                  autoBanglaSubEnabled
+                                    ? 'bg-[#dc2626] border-[#dc2626] text-white'
+                                    : 'bg-black/60 border-white/20 text-gray-200 hover:border-white/40'
+                                }`}
+                              >
+                                <Subtitles className="w-3 h-3" />
+                                <span>
+                                  {loadingAutoSub
+                                    ? 'CC...'
+                                    : autoBanglaSubEnabled
+                                      ? availableSubTracks[activeSubTrackIdx]?.keepOriginalScript
+                                        ? availableSubTracks[activeSubTrackIdx]?.lang?.toUpperCase() || 'CC'
+                                        : 'বাংলা CC'
+                                      : 'CC / Sub'}
+                                </span>
+                              </button>
+
+                              {showSubSyncPanel && (
+                                <div
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="absolute right-0 bottom-full mb-2 w-56 max-h-64 overflow-y-auto rounded-xl bg-[#111318]/95 border border-white/15 shadow-2xl p-2 z-50 backdrop-blur-md space-y-1.5 font-sans"
+                                >
+                                  <div className="flex items-center justify-between px-1 pb-1 border-b border-white/10">
+                                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-gray-300">
+                                      MovieBox Subtitles (CC)
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setShowSubSyncPanel(false)}
+                                      className="text-gray-400 hover:text-white cursor-pointer"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setAutoBanglaSubEnabled(false);
+                                      setShowSubSyncPanel(false);
+                                      triggerHud('toast', 'Subtitles: OFF');
+                                    }}
+                                    className={`w-full px-2.5 py-1.5 rounded-lg text-left text-[11px] font-semibold flex items-center justify-between cursor-pointer ${
+                                      !autoBanglaSubEnabled
+                                        ? 'bg-[#dc2626] text-white'
+                                        : 'text-gray-200 hover:bg-white/10'
+                                    }`}
+                                  >
+                                    <span>Off (সাবটাইটেল বন্ধ)</span>
+                                    {!autoBanglaSubEnabled && <Check className="w-3.5 h-3.5" />}
+                                  </button>
+
+                                  {availableSubTracks.length > 0 ? (
+                                    availableSubTracks.map((trk, idx) => {
+                                      const isSelected =
+                                        autoBanglaSubEnabled && activeSubTrackIdx === idx;
+                                      return (
+                                        <button
+                                          key={trk.id || idx}
+                                          type="button"
+                                          onClick={() => {
+                                            handleSelectSubtitleTrack(idx);
+                                            setShowSubSyncPanel(false);
+                                          }}
+                                          className={`w-full px-2.5 py-1.5 rounded-lg text-left text-[11px] font-semibold flex items-center justify-between cursor-pointer ${
+                                            isSelected
+                                              ? 'bg-[#dc2626] text-white'
+                                              : 'text-gray-200 hover:bg-white/10'
+                                          }`}
+                                        >
+                                          <span className="truncate">{trk.label}</span>
+                                          {isSelected && (
+                                            <Check className="w-3.5 h-3.5 shrink-0 ml-1" />
+                                          )}
+                                        </button>
+                                      );
+                                    })
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setAutoBanglaSubEnabled(true);
+                                        setShowSubSyncPanel(false);
+                                      }}
+                                      className={`w-full px-2.5 py-1.5 rounded-lg text-left text-[11px] font-semibold flex items-center justify-between cursor-pointer ${
+                                        autoBanglaSubEnabled
+                                          ? 'bg-[#dc2626] text-white'
+                                          : 'text-gray-200 hover:bg-white/10'
+                                      }`}
+                                    >
+                                      <span>বাংলা (MovieBox Auto-Sync)</span>
+                                      {autoBanglaSubEnabled && <Check className="w-3.5 h-3.5" />}
+                                    </button>
+                                  )}
+
+                                  {/* Font Size & Sync Offset Controls */}
+                                  <div className="pt-1.5 border-t border-white/10 flex items-center justify-between gap-1 text-[10px] text-gray-300">
+                                    <span>Size:</span>
+                                    <div className="flex items-center gap-1">
+                                      {(['sm', 'md', 'lg'] as const).map((sz) => (
+                                        <button
+                                          key={sz}
+                                          type="button"
+                                          onClick={() => setSubFontSize(sz)}
+                                          className={`px-2 py-0.5 rounded font-bold uppercase cursor-pointer ${
+                                            subFontSize === sz
+                                              ? 'bg-[#dc2626] text-white'
+                                              : 'bg-white/10 text-gray-300'
+                                          }`}
+                                        >
+                                          {sz}
+                                        </button>
+                                      ))}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => subtitleInputRef.current?.click()}
+                                      className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-gray-200 font-bold cursor-pointer"
+                                    >
+                                      +.SRT
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
                             <button
                               type="button"
                               onClick={handleTogglePortraitMode}
@@ -4629,11 +4807,17 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
                 </div>
               )}
 
-              {/* Single Small Bangla Subtitle at the Bottom of the Video Screen (Only when manually turned ON) */}
+              {/* Official MovieBox / Bangla Subtitle Overlay at the Bottom of the Video Screen */}
               {!isMiniPlayer && autoBanglaSubEnabled && activeBanglaCueText && (
                 <div className="pointer-events-none select-none absolute inset-x-2 bottom-12 sm:bottom-14 z-30 flex justify-center">
                   <div
-                    className="max-w-[90%] px-2 py-0.5 rounded bg-black/55 text-center font-medium text-white text-[11px] sm:text-xs leading-tight tracking-wide"
+                    className={`max-w-[92%] px-2.5 py-1 rounded-md bg-black/65 text-center font-semibold text-white leading-snug tracking-wide ${
+                      subFontSize === 'lg'
+                        ? 'text-sm sm:text-base'
+                        : subFontSize === 'md'
+                          ? 'text-xs sm:text-sm'
+                          : 'text-[11px] sm:text-xs'
+                    }`}
                     style={{
                       fontFamily: "'Hind Siliguri', sans-serif",
                       textShadow:
@@ -4672,7 +4856,7 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
                 </button>
               </div>
 
-              {/* Compact Single-Line Metadata: 📺 | ⭐ 8.0 | 2026 | Language | Genre | 1 seasons */}
+              {/* Compact Single-Line Metadata */}
               <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-gray-400">
                 <Tv className="w-3.5 h-3.5 text-gray-400 shrink-0" />
                 <span className="text-gray-600">|</span>
@@ -4687,10 +4871,16 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
                 <span className="text-gray-600">|</span>
                 <span>{(displayGenre.split(',')[0] || 'Drama').trim()}</span>
                 <span className="text-gray-600">|</span>
-                <span>{distinctSeasons.length || 1} seasons</span>
+                <span>
+                  {episodes.length <= 1 &&
+                  movie.typeBadge !== 'SERIES' &&
+                  distinctSeasons.length <= 1
+                    ? 'Movie'
+                    : `${distinctSeasons.length || 1} Seasons`}
+                </span>
               </div>
 
-              {/* Horizontal Action Pills: [ Add to list ] [ Share ] [ Download ] [ Landscape ] [ Portrait ] [ PiP ] [ Video / Sub ] */}
+              {/* Clean Essential Action Pills: [ Add to list ] [ Share ] [ Download ] [ Sound Boost ] */}
               <div className="flex items-center gap-2 overflow-x-auto no-scrollbar pt-1">
                 <button
                   type="button"
@@ -4748,58 +4938,44 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
                   />
                   <span>
                     {!isMuted && volume > 100
-                      ? `Sound Boost: ${volume}% 🔥`
-                      : `Sound Boost (${isMuted ? 0 : volume}%)`}
+                      ? `Sound Boost: ${volume}%`
+                      : `Sound Boost`}
                   </span>
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => setShowSeparateQualityBar((v) => !v)}
+                  onClick={() => {
+                    if (!autoBanglaSubEnabled) {
+                      setAutoBanglaSubEnabled(true);
+                      triggerHud('toast', 'Subtitles (CC): ON');
+                    } else if (availableSubTracks.length > 1) {
+                      const nextIdx = (activeSubTrackIdx + 1) % (availableSubTracks.length + 1);
+                      if (nextIdx === availableSubTracks.length) {
+                        setAutoBanglaSubEnabled(false);
+                        triggerHud('toast', 'Subtitles (CC): OFF');
+                      } else {
+                        handleSelectSubtitleTrack(nextIdx);
+                      }
+                    } else {
+                      setAutoBanglaSubEnabled(false);
+                      triggerHud('toast', 'Subtitles (CC): OFF');
+                    }
+                  }}
                   className={`h-9 px-3.5 rounded-full text-xs sm:text-sm font-medium flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer ${
-                    showSeparateQualityBar || selectedQualityPref !== 'auto'
+                    autoBanglaSubEnabled
                       ? 'bg-[#dc2626]/25 border border-[#dc2626] text-white'
                       : 'bg-[#1b1d21] hover:bg-[#25282e] text-gray-200'
                   }`}
                 >
-                  <Sparkles className="w-4 h-4 text-[#dc2626]" />
-                  <span>Quality: {activeQualityLabel}</span>
-                  <ChevronDown
-                    className={`w-3.5 h-3.5 transition-transform ${
-                      showSeparateQualityBar ? 'rotate-180' : ''
-                    }`}
-                  />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleToggleFullscreen}
-                  className="h-9 px-3.5 rounded-full bg-[#1b1d21] hover:bg-[#25282e] text-xs sm:text-sm font-medium text-gray-200 flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer"
-                >
-                  <Maximize className="w-4 h-4 text-[#dc2626]" />
-                  <span>Landscape</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleTogglePortraitMode}
-                  className="h-9 px-3.5 rounded-full bg-[#1b1d21] hover:bg-[#25282e] text-xs sm:text-sm font-medium text-gray-200 flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer"
-                >
-                  <Smartphone className="w-4 h-4 text-[#dc2626]" />
-                  <span>Portrait</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleTogglePiP}
-                  className={`h-9 px-3.5 rounded-full text-xs sm:text-sm font-medium flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer ${
-                    isOsPipActive || isMiniPlayer
-                      ? 'bg-[#dc2626]/25 border border-[#dc2626] text-white'
-                      : 'bg-[#1b1d21] hover:bg-[#25282e] text-gray-200'
-                  }`}
-                >
-                  <PictureInPicture2 className="w-4 h-4 text-[#dc2626]" />
-                  <span>PiP / Mini</span>
+                  <Subtitles className="w-4 h-4 text-[#dc2626]" />
+                  <span>
+                    {loadingAutoSub
+                      ? 'Loading CC...'
+                      : autoBanglaSubEnabled
+                        ? availableSubTracks[activeSubTrackIdx]?.label || 'বাংলা Sub: ON'
+                        : 'Subtitles (CC)'}
+                  </span>
                 </button>
 
                 <input
@@ -4809,18 +4985,6 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
                   onChange={handleSubtitleFileUpload}
                   className="hidden"
                 />
-                <button
-                  type="button"
-                  onClick={() => setAutoBanglaSubEnabled((v) => !v)}
-                  className={`h-9 px-3.5 rounded-full text-xs sm:text-sm font-medium flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer ${
-                    autoBanglaSubEnabled
-                      ? 'bg-[#dc2626]/25 border border-[#dc2626] text-white'
-                      : 'bg-[#1b1d21] hover:bg-[#25282e] text-gray-200'
-                  }`}
-                >
-                  <ListVideo className="w-4 h-4" />
-                  <span>{autoBanglaSubEnabled ? 'Bangla Sub: ON' : 'Video / Sub'}</span>
-                </button>
               </div>
 
               {/* Separate Dedicated Sound Booster Bar (Opens when tapping Sound Boost pill) */}
@@ -4922,20 +5086,16 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
               )}
             </section>
 
-            {/* 2. Resources Section: Header + [ Hindi dub v ] [ Season 01 v ] + [ All ] [ 01 ] [ 02 ] [ 03 ] Episode Tiles */}
+            {/* 2. Resources Section */}
             <section className="space-y-3">
-              {/* Resources Header */}
-              <div className="flex items-center gap-2 flex-wrap">
+              {/* Clean Resources Header (Removed "Uploaded by ... etc. (?)") */}
+              <div className="flex items-center justify-between gap-2">
                 <h2 className="text-base sm:text-lg font-extrabold text-white">Resources</h2>
-                <span className="text-xs sm:text-sm text-gray-400">
-                  Uploaded by {effectiveDetail?.uploadedBy || 'MarieNo Ess'} etc.
-                </span>
-                <HelpCircle className="w-4 h-4 text-gray-400 shrink-0" />
               </div>
 
-              {/* Two Side-by-Side Dropdown Boxes: [ Hindi dub ⌄ ] [ Season 01 ⌄ ] (Exact Match to Screenshot) */}
+              {/* Audio / Dub Dropdown + Season Dropdown (Season Dropdown only shown for Series) */}
               <div className="flex items-center gap-2.5 flex-wrap">
-                {/* Left Dropdown: Audio / Dub Language + Stream Servers */}
+                {/* Left Dropdown: Audio / Dub Language */}
                 <div className="relative inline-block">
                   <button
                     type="button"
@@ -4954,230 +5114,206 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
                   </button>
 
                   {showDubDropdown && (
-                    <div className="absolute left-0 top-full mt-1.5 min-w-[220px] max-h-72 overflow-y-auto bg-[#121418] border border-white/15 rounded-xl shadow-2xl z-30 py-1.5 divide-y divide-white/10">
-                      {/* Available Audio / Dub Languages */}
-                      <div className="py-1">
-                        <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">
-                          Audio / Dubbing Languages
-                        </div>
-                        {availableDubs.map((dub) => {
-                          const isCurrentDub =
-                            dub.path === (movie.path || movie.url) ||
-                            dub.id === activeDubOption?.id;
-                          return (
-                            <button
-                              key={dub.id || dub.label}
-                              type="button"
-                              onClick={() => {
-                                setShowDubDropdown(false);
-                                if (dub.path && dub.path !== (movie.path || movie.url)) {
-                                  onSelectMovie({
-                                    ...movie,
-                                    path: dub.path,
-                                    url: dub.path,
-                                    language: dub.label,
-                                  });
-                                }
-                              }}
-                              className={`w-full text-left px-3 py-2 text-xs font-semibold flex items-center justify-between transition-colors cursor-pointer ${
-                                isCurrentDub
-                                  ? 'bg-[#dc2626]/20 text-[#ef4444]'
-                                  : 'text-gray-200 hover:bg-white/5'
-                              }`}
-                            >
-                              <span>{dub.label}</span>
-                              {isCurrentDub && <Check className="w-3.5 h-3.5 text-[#ef4444]" />}
-                            </button>
-                          );
-                        })}
+                    <div className="absolute left-0 top-full mt-1.5 min-w-[210px] max-h-72 overflow-y-auto bg-[#121418] border border-white/15 rounded-xl shadow-2xl z-30 py-1.5">
+                      <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                        Audio / Dubbing Languages
                       </div>
-
-                      {/* Stream Servers / Resolutions */}
-                      {sources.length > 0 && (
-                        <div className="py-1">
-                          <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">
-                            Stream Servers
-                          </div>
-                          {sources.map((src, idx) => {
-                            const isActive = selectedSourceIdx === idx;
-                            return (
-                              <button
-                                key={src.id || idx}
-                                type="button"
-                                onClick={() => {
-                                  handleSelectSource(idx, true);
-                                  setShowDubDropdown(false);
-                                }}
-                                className={`w-full text-left px-3 py-2 text-xs font-semibold flex items-center justify-between transition-colors cursor-pointer ${
-                                  isActive
-                                    ? 'bg-[#dc2626]/20 text-[#ef4444]'
-                                    : 'text-gray-200 hover:bg-white/5'
-                                }`}
-                              >
-                                <span>
-                                  Server {idx + 1} · {src.provider || src.name || 'HD'} ({src.quality || 720}p)
-                                </span>
-                                {isActive && <Check className="w-3.5 h-3.5 text-[#ef4444]" />}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Right Dropdown: Season Selector ([ Season 01 ⌄ ]) */}
-                <div className="relative inline-block">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowSeasonDropdown((v) => !v);
-                      setShowDubDropdown(false);
-                    }}
-                    className="h-10 px-3.5 rounded-lg bg-[#121418] hover:bg-[#1b1d21] border border-white/15 text-xs sm:text-sm font-medium text-gray-100 flex items-center gap-2.5 transition-colors cursor-pointer"
-                  >
-                    <span>{activeSeasonLabel}</span>
-                    <ChevronDown
-                      className={`w-4 h-4 text-gray-400 transition-transform ${
-                        showSeasonDropdown ? 'rotate-180' : ''
-                      }`}
-                    />
-                  </button>
-
-                  {showSeasonDropdown && (
-                    <div className="absolute left-0 top-full mt-1.5 min-w-[190px] max-h-72 overflow-y-auto bg-[#121418] border border-white/15 rounded-xl shadow-2xl z-30 py-1.5 divide-y divide-white/10">
-                      <div className="py-1">
-                        <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">
-                          Seasons
-                        </div>
-                        {(distinctSeasons.length > 0 ? distinctSeasons : [1]).map((sNum) => {
-                          const isCurrentSeason =
-                            selectedSeasonFilter === sNum ||
-                            (selectedSeasonFilter === 'all' &&
-                              sNum === (distinctSeasons[0] || 1));
-                          return (
-                            <button
-                              key={sNum}
-                              type="button"
-                              onClick={() => {
-                                setSelectedSeasonFilter(sNum);
-                                setShowSeasonDropdown(false);
-                                const firstEpIdx = episodes.findIndex((ep) => ep.season === sNum);
-                                if (firstEpIdx !== -1) {
-                                  handleSelectEpisode(firstEpIdx);
-                                }
-                              }}
-                              className={`w-full text-left px-3 py-2 text-xs font-semibold flex items-center justify-between transition-colors cursor-pointer ${
-                                isCurrentSeason
-                                  ? 'bg-[#dc2626]/20 text-[#ef4444]'
-                                  : 'text-gray-200 hover:bg-white/5'
-                              }`}
-                            >
-                              <span>Season {String(sNum).padStart(2, '0')}</span>
-                              {isCurrentSeason && <Check className="w-3.5 h-3.5 text-[#ef4444]" />}
-                            </button>
-                          );
-                        })}
-                        {distinctSeasons.length > 1 && (
+                      {availableDubs.map((dub) => {
+                        const isCurrentDub =
+                          dub.path === (movie.path || movie.url) ||
+                          dub.id === activeDubOption?.id;
+                        return (
                           <button
+                            key={dub.id || dub.label}
                             type="button"
                             onClick={() => {
-                              setSelectedSeasonFilter('all');
-                              setShowSeasonDropdown(false);
+                              setShowDubDropdown(false);
+                              if (dub.path && dub.path !== (movie.path || movie.url)) {
+                                onSelectMovie({
+                                  ...movie,
+                                  path: dub.path,
+                                  url: dub.path,
+                                  language: dub.label,
+                                });
+                              }
                             }}
                             className={`w-full text-left px-3 py-2 text-xs font-semibold flex items-center justify-between transition-colors cursor-pointer ${
-                              selectedSeasonFilter === 'all'
+                              isCurrentDub
                                 ? 'bg-[#dc2626]/20 text-[#ef4444]'
                                 : 'text-gray-200 hover:bg-white/5'
                             }`}
                           >
-                            <span>All Seasons ({episodes.length})</span>
-                            {selectedSeasonFilter === 'all' && (
-                              <Check className="w-3.5 h-3.5 text-[#ef4444]" />
-                            )}
+                            <span>{dub.label}</span>
+                            {isCurrentDub && <Check className="w-3.5 h-3.5 text-[#ef4444]" />}
                           </button>
-                        )}
-                      </div>
-
-                      {/* Related Season Packs */}
-                      {(effectiveDetail?.relatedSeasons || []).length > 0 && (
-                        <div className="py-1">
-                          <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">
-                            More Seasons
-                          </div>
-                          {(effectiveDetail?.relatedSeasons || []).map((relSeason) => {
-                            const normS = normalizeMovieCardItem(relSeason);
-                            return (
-                              <button
-                                key={relSeason.path}
-                                type="button"
-                                onClick={() => {
-                                  setShowSeasonDropdown(false);
-                                  onSelectMovie(normS);
-                                }}
-                                className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-white/5 truncate cursor-pointer"
-                              >
-                                {normS.episodePill || normS.title}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
-              </div>
 
-              {/* Horizontal Episode Tiles Row: [ All ] [ 01 ] [ 02 ] [ 03 ] [ 04 ] [ 05 ] [ 06 ] ... */}
-              <div className="flex items-center gap-2.5 overflow-x-auto no-scrollbar py-0.5">
-                {/* "All" Tile First on the Left (Exact Match to Screenshot 1) */}
-                <button
-                  type="button"
-                  onClick={() => setShowAllEpisodesModal(true)}
-                  className="w-[54px] h-[48px] rounded-xl bg-[#1b1d21] hover:bg-[#25282e] text-white text-sm font-medium flex items-center justify-center shrink-0 transition-colors cursor-pointer"
-                >
-                  All
-                </button>
-
-                {(horizontalEpisodesSlice.length > 0
-                  ? horizontalEpisodesSlice
-                  : [
-                      {
-                        ep: {
-                          id: 'ep-1',
-                          label: '01',
-                          number: 1,
-                          season: 1,
-                          kind: 'movie' as const,
-                          sources: [],
-                        },
-                        idx: 0,
-                      },
-                    ]
-                ).map(({ ep, idx }) => {
-                  const isSelected = idx === selectedEpIdx;
-                  const rawBadge = formatEpisodeTileBadge(ep, idx);
-                  const badgeStr = rawBadge === 'Movie' ? '01' : rawBadge;
-                  return (
+                {/* Right Dropdown: Season Selector (Only for Series / Multi-Episode Titles) */}
+                {(episodes.length > 1 ||
+                  movie.typeBadge === 'SERIES' ||
+                  distinctSeasons.length > 1 ||
+                  (effectiveDetail?.relatedSeasons || []).length > 0) && (
+                  <div className="relative inline-block">
                     <button
-                      key={ep.id || idx}
                       type="button"
-                      onClick={() => handleSelectEpisode(idx)}
-                      className={`min-w-[54px] h-[48px] px-3 rounded-xl text-sm font-semibold flex items-center justify-center shrink-0 transition-all cursor-pointer ${
-                        isSelected
-                          ? 'bg-gradient-to-br from-[#dc2626]/30 to-[#7f1d1d]/35 border border-[#dc2626]/60 text-[#ef4444] font-bold shadow-[0_0_12px_rgba(220,38,38,0.2)]'
-                          : 'bg-[#1b1d21] hover:bg-[#25282e] text-gray-200'
-                      }`}
+                      onClick={() => {
+                        setShowSeasonDropdown((v) => !v);
+                        setShowDubDropdown(false);
+                      }}
+                      className="h-10 px-3.5 rounded-lg bg-[#121418] hover:bg-[#1b1d21] border border-white/15 text-xs sm:text-sm font-medium text-gray-100 flex items-center gap-2.5 transition-colors cursor-pointer"
                     >
-                      {badgeStr}
+                      <span>{activeSeasonLabel}</span>
+                      <ChevronDown
+                        className={`w-4 h-4 text-gray-400 transition-transform ${
+                          showSeasonDropdown ? 'rotate-180' : ''
+                        }`}
+                      />
                     </button>
-                  );
-                })}
+
+                    {showSeasonDropdown && (
+                      <div className="absolute left-0 top-full mt-1.5 min-w-[190px] max-h-72 overflow-y-auto bg-[#121418] border border-white/15 rounded-xl shadow-2xl z-30 py-1.5 divide-y divide-white/10">
+                        <div className="py-1">
+                          <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                            Seasons
+                          </div>
+                          {(distinctSeasons.length > 0 ? distinctSeasons : [1]).map((sNum) => {
+                            const isCurrentSeason =
+                              selectedSeasonFilter === sNum ||
+                              (selectedSeasonFilter === 'all' &&
+                                sNum === (distinctSeasons[0] || 1));
+                            return (
+                              <button
+                                key={sNum}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedSeasonFilter(sNum);
+                                  setShowSeasonDropdown(false);
+                                  const firstEpIdx = episodes.findIndex((ep) => ep.season === sNum);
+                                  if (firstEpIdx !== -1) {
+                                    handleSelectEpisode(firstEpIdx);
+                                  }
+                                }}
+                                className={`w-full text-left px-3 py-2 text-xs font-semibold flex items-center justify-between transition-colors cursor-pointer ${
+                                  isCurrentSeason
+                                    ? 'bg-[#dc2626]/20 text-[#ef4444]'
+                                    : 'text-gray-200 hover:bg-white/5'
+                                }`}
+                              >
+                                <span>Season {String(sNum).padStart(2, '0')}</span>
+                                {isCurrentSeason && <Check className="w-3.5 h-3.5 text-[#ef4444]" />}
+                              </button>
+                            );
+                          })}
+                          {distinctSeasons.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedSeasonFilter('all');
+                                setShowSeasonDropdown(false);
+                              }}
+                              className={`w-full text-left px-3 py-2 text-xs font-semibold flex items-center justify-between transition-colors cursor-pointer ${
+                                selectedSeasonFilter === 'all'
+                                  ? 'bg-[#dc2626]/20 text-[#ef4444]'
+                                  : 'text-gray-200 hover:bg-white/5'
+                              }`}
+                            >
+                              <span>All Seasons ({episodes.length})</span>
+                              {selectedSeasonFilter === 'all' && (
+                                <Check className="w-3.5 h-3.5 text-[#ef4444]" />
+                              )}
+                            </button>
+                          )}
+                        </div>
+
+                        {(effectiveDetail?.relatedSeasons || []).length > 0 && (
+                          <div className="py-1">
+                            <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                              More Seasons
+                            </div>
+                            {(effectiveDetail?.relatedSeasons || []).map((relSeason) => {
+                              const normS = normalizeMovieCardItem(relSeason);
+                              return (
+                                <button
+                                  key={relSeason.path}
+                                  type="button"
+                                  onClick={() => {
+                                    setShowSeasonDropdown(false);
+                                    onSelectMovie(normS);
+                                  }}
+                                  className="w-full text-left px-3 py-2 text-xs text-gray-200 hover:bg-white/5 truncate cursor-pointer"
+                                >
+                                  {normS.episodePill || normS.title}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Direct Quality Pills (480p / 720p / 1080p) */}
+                {sources.length > 1 &&
+                  sources.slice(0, 4).map((src, idx) => {
+                    const isActive = selectedSourceIdx === idx;
+                    return (
+                      <button
+                        key={src.id || idx}
+                        type="button"
+                        onClick={() => handleSelectSource(idx, true)}
+                        className={`h-10 px-3.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shrink-0 transition-all cursor-pointer border ${
+                          isActive
+                            ? 'bg-[#dc2626]/25 border-[#dc2626] text-white shadow-sm'
+                            : 'bg-[#121418] hover:bg-[#1b1d21] border-white/15 text-gray-300'
+                        }`}
+                      >
+                        <Play className="w-3 h-3 fill-current shrink-0" />
+                        <span>{src.quality || 480}p HD</span>
+                      </button>
+                    );
+                  })}
               </div>
+
+              {/* Horizontal Episode Tiles Row (Only shown when there are multiple episodes or it's a TV Series) */}
+              {(episodes.length > 1 || movie.typeBadge === 'SERIES') && (
+                <div className="flex items-center gap-2.5 overflow-x-auto no-scrollbar py-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowAllEpisodesModal(true)}
+                    className="w-[54px] h-[48px] rounded-xl bg-[#1b1d21] hover:bg-[#25282e] text-white text-sm font-medium flex items-center justify-center shrink-0 transition-colors cursor-pointer"
+                  >
+                    All
+                  </button>
+
+                  {horizontalEpisodesSlice.map(({ ep, idx }) => {
+                    const isSelected = idx === selectedEpIdx;
+                    const rawBadge = formatEpisodeTileBadge(ep, idx);
+                    const badgeStr = rawBadge === 'Movie' ? '01' : rawBadge;
+                    return (
+                      <button
+                        key={ep.id || idx}
+                        type="button"
+                        onClick={() => handleSelectEpisode(idx)}
+                        className={`min-w-[54px] h-[48px] px-3 rounded-xl text-sm font-semibold flex items-center justify-center shrink-0 transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-gradient-to-br from-[#dc2626]/30 to-[#7f1d1d]/35 border border-[#dc2626]/60 text-[#ef4444] font-bold shadow-[0_0_12px_rgba(220,38,38,0.2)]'
+                            : 'bg-[#1b1d21] hover:bg-[#25282e] text-gray-200'
+                        }`}
+                      >
+                        {badgeStr}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </section>
 
-            {/* 3. Bottom Navigation Tabs: "For you" and "Comments(36)•" */}
+            {/* 3. Bottom Navigation Tabs: "For you" and "Info & Cast" */}
             <section className="pt-1 space-y-4">
               <div className="flex items-center gap-7 border-b border-white/[0.06]">
                 <button
@@ -5195,32 +5331,16 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => setBottomTab('reviews')}
-                  className="relative pb-2.5 text-base sm:text-lg font-medium flex items-center gap-1 transition-colors cursor-pointer"
+                  onClick={() => setBottomTab('infoCast')}
+                  className="relative pb-2.5 text-base sm:text-lg font-extrabold transition-colors cursor-pointer"
                 >
-                  <span
-                    className={
-                      bottomTab === 'reviews' ? 'text-white font-extrabold' : 'text-gray-400'
-                    }
-                  >
-                    Comments({36 + (customReviewsMap[movie.path]?.length || 0)})
+                  <span className={bottomTab === 'infoCast' ? 'text-white' : 'text-gray-400'}>
+                    Info & Cast
                   </span>
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#ef4444] -mt-2" />
-                  {bottomTab === 'reviews' && (
+                  {bottomTab === 'infoCast' && (
                     <span className="absolute left-0 right-0 bottom-0 h-1 bg-white rounded-full" />
                   )}
                 </button>
-
-                {bottomTab === 'infoCast' && (
-                  <button
-                    type="button"
-                    onClick={() => setBottomTab('infoCast')}
-                    className="relative pb-2.5 text-base sm:text-lg font-extrabold text-white cursor-pointer"
-                  >
-                    <span>Info & Cast</span>
-                    <span className="absolute left-0 right-0 bottom-0 h-1 bg-white rounded-full" />
-                  </button>
-                )}
               </div>
 
               {/* TAB 1: "For you" — 3-Column Poster Grid with Top-Right Language Badge & Bottom 1-Line Title */}
@@ -5280,112 +5400,7 @@ export const MovieDetailModal: React.FC<MovieDetailModalProps> = ({
                 </div>
               )}
 
-              {/* TAB 2: "Comments(36)" — Audience Comments & Rating */}
-              {bottomTab === 'reviews' && (
-                <div className="space-y-4">
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      const trimmed = userReviewText.trim();
-                      if (!trimmed) return;
-                      const entry = {
-                        id: String(Date.now()),
-                        author: userReviewName.trim() || 'CinePulse Viewer',
-                        stars: userRatingStars,
-                        text: trimmed,
-                        date: 'Just now',
-                      };
-                      const nextMap = {
-                        ...customReviewsMap,
-                        [movie.path]: [entry, ...(customReviewsMap[movie.path] || [])],
-                      };
-                      setCustomReviewsMap(nextMap);
-                      setUserReviewText('');
-                      try {
-                        localStorage.setItem('cp_moviebox_reviews_v1', JSON.stringify(nextMap));
-                      } catch {
-                        // ignore
-                      }
-                    }}
-                    className="bg-[#121418] border border-white/10 rounded-xl p-3.5 space-y-2.5"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-gray-200">Leave a Comment</span>
-                      <div className="flex items-center gap-1">
-                        {[1, 2, 3, 4, 5].map((st) => (
-                          <button
-                            key={st}
-                            type="button"
-                            onClick={() => setUserRatingStars(st)}
-                            className="p-0.5"
-                          >
-                            <Star
-                              className={`w-4 h-4 ${
-                                st <= userRatingStars
-                                  ? 'text-amber-400 fill-current'
-                                  : 'text-gray-600'
-                              }`}
-                            />
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={userReviewText}
-                        onChange={(e) => setUserReviewText(e.target.value)}
-                        placeholder="Write your comment..."
-                        className="flex-1 h-9 px-3 rounded-lg bg-[#1b1d21] border border-white/10 text-xs text-white focus:outline-none focus:border-[#dc2626]"
-                      />
-                      <button
-                        type="submit"
-                        className="h-9 px-4 rounded-lg bg-[#dc2626] text-white text-xs font-bold shrink-0"
-                      >
-                        Post
-                      </button>
-                    </div>
-                  </form>
-
-                  <div className="space-y-2.5">
-                    {[
-                      ...(customReviewsMap[movie.path] || []),
-                      {
-                        id: 'c1',
-                        author: 'Tanvir Ahmed',
-                        stars: 5,
-                        text: 'অসাধারণ প্রিন্ট আর একদম বাফারিং ছাড়া স্মুথ চলছে! ১০/১০।',
-                        date: '2h ago',
-                      },
-                      {
-                        id: 'c2',
-                        author: 'Sadia Islam',
-                        stars: 5,
-                        text: 'ভয়েস এবং সাউন্ড কোয়ালিটি একদম ক্লিয়ার। ধন্যবাদ আপলোড করার জন্য।',
-                        date: '5h ago',
-                      },
-                      {
-                        id: 'c3',
-                        author: 'Rohan Khan',
-                        stars: 4,
-                        text: 'Server 1 এ ক্লিক করার সাথে সাথেই প্লে হয়েছে!',
-                        date: '1d ago',
-                      },
-                    ].map((rev) => (
-                      <div
-                        key={rev.id}
-                        className="bg-[#121418] border border-white/[0.06] rounded-xl p-3 space-y-1"
-                      >
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="font-bold text-white">{rev.author}</span>
-                          <span className="text-[11px] text-gray-400">{rev.date}</span>
-                        </div>
-                        <p className="text-xs text-gray-300 leading-relaxed">{rev.text}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {/* Fake Comments tab removed for clean UI */}
 
               {/* TAB 3: "Info >" Details, Cast & Screenshots Panel */}
               {bottomTab === 'infoCast' && (
